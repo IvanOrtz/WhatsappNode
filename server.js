@@ -2,81 +2,149 @@ import express from 'express';
 import { Server } from "socket.io";
 import { createServer } from "node:http";
 import cors from 'cors';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const app = express();
-app.use(cors());
 
-// --- SERVIR FRONTEND ---
-// Según tus logs, Vite está generando la carpeta 'dist', así que usamos 'dist'
-app.use(express.static(path.join(__dirname, 'dist')));
+// URL del frontend en produccion
+const FRONTEND_URL =
+    process.env.FRONTEND_URL || "http://localhost:5173";
+
+// Configuracion CORS
+app.use(cors({
+    origin: FRONTEND_URL
+}));
+
+// Endpoint basico para comprobar que el servidor funciona
+app.get("/", (req, res) => {
+    res.send("Servidor funcionando");
+});
 
 const server = createServer(app);
-const io = new Server(server, { 
-    cors: { origin: "*" } 
+
+// Configuracion Socket.IO
+const io = new Server(server, {
+    cors: {
+        origin: FRONTEND_URL
+    }
 });
 
 let usuarios = {};
 
+// Devuelve los usuarios de una sala
+function usuariosEnSala(sala) {
+    return Object.values(usuarios).filter(
+        usuario => usuario.roomActual === sala
+    );
+}
 
-app.get('/:any*', (req, res) => {
-    const indexPath = path.join(__dirname, 'dist', 'index.html');
-    res.sendFile(indexPath, (err) => {
-        if (err) {
-            res.status(200).send("Servidor activo. No se encontró la carpeta 'dist'.");
-        }
-    });
-});
-
-// --- LÓGICA DE SOCKET.IO ---
+// Envia aviso de entrada
 function avisarEntrada(socket, sala) {
     const usuario = usuarios[socket.id];
+
     if (!usuario) return;
+
     io.to(sala).emit("notificacionSistema", {
         texto: `${usuario.nombreUsuario} ha entrado`,
         room: sala
     });
 }
 
+// Envia aviso de salida
 function avisarSalida(socket, sala) {
     const usuario = usuarios[socket.id];
+
     if (!usuario) return;
+
     io.to(sala).emit("notificacionSistema", {
         texto: `${usuario.nombreUsuario} ha salido`,
         room: sala
     });
 }
 
+// Cambia al usuario de sala
 function cambiarSala(socket, nuevaSala) {
     const usuario = usuarios[socket.id];
+
     if (!usuario || usuario.roomActual === nuevaSala) return;
+
+    // Avisar salida
     avisarSalida(socket, usuario.roomActual);
+
+    // Salir de la sala actual
     socket.leave(usuario.roomActual);
+
+    // Entrar en la nueva sala
     usuario.roomActual = nuevaSala;
     socket.join(nuevaSala);
+
+    // Avisar entrada
     avisarEntrada(socket, nuevaSala);
+
+    // Actualizar lista de usuarios en ambas salas
+    io.to(usuario.roomActual).emit(
+        'listaUsuarios',
+        usuariosEnSala(usuario.roomActual)
+    );
+
+    io.to(nuevaSala).emit(
+        'listaUsuarios',
+        usuariosEnSala(nuevaSala)
+    );
 }
 
-io.on('connection', function (socket) {
-    socket.on("nombreUsuario", function (datosUsuario) {
-        usuarios[socket.id] = { ...datosUsuario, roomActual: 'general' };
+io.on('connection', (socket) => {
+
+    console.log(`Usuario conectado: ${socket.id}`);
+
+    // Usuario entra al chat
+    socket.on("nombreUsuario", (datosUsuario) => {
+
+        usuarios[socket.id] = {
+            ...datosUsuario,
+            roomActual: 'general'
+        };
+
         socket.join('general');
-        io.emit('listaUsuarios', Object.values(usuarios));
+
+        // Actualizar lista de usuarios de la sala
+        io.to('general').emit(
+            'listaUsuarios',
+            usuariosEnSala('general')
+        );
+
         avisarEntrada(socket, 'general');
     });
 
-    socket.on("cambiarSala", function (nuevaSala) {
+    // Cambiar de sala
+    socket.on("cambiarSala", (nuevaSala) => {
+
+        const usuario = usuarios[socket.id];
+
+        if (!usuario) return;
+
+        const salaAnterior = usuario.roomActual;
+
         cambiarSala(socket, nuevaSala);
-        io.emit('listaUsuarios', Object.values(usuarios));
+
+        // Actualizar usuarios de ambas salas
+        io.to(salaAnterior).emit(
+            'listaUsuarios',
+            usuariosEnSala(salaAnterior)
+        );
+
+        io.to(nuevaSala).emit(
+            'listaUsuarios',
+            usuariosEnSala(nuevaSala)
+        );
     });
 
-    socket.on("mensajeTexto", function (mensaje) {
+    // Mensajes
+    socket.on("mensajeTexto", (mensaje) => {
+
         const usuario = usuarios[socket.id];
+
         if (!usuario) return;
+
         io.to(usuario.roomActual).emit('mensajeTexto', {
             ...mensaje,
             tipo: 'mensaje',
@@ -84,38 +152,61 @@ io.on('connection', function (socket) {
         });
     });
 
-    socket.on("escribiendo", function () {
+    // Usuario escribiendo
+    socket.on("escribiendo", () => {
+
         const usuario = usuarios[socket.id];
+
         if (!usuario) return;
-        io.to(usuario.roomActual).emit("usuarioEscribiendo", {
+
+        socket.to(usuario.roomActual).emit("usuarioEscribiendo", {
             nombre: usuario.nombreUsuario,
             room: usuario.roomActual
         });
     });
 
-    socket.on("dejandoDeEscribir", function () {
+    // Usuario deja de escribir
+    socket.on("dejandoDeEscribir", () => {
+
         const usuario = usuarios[socket.id];
+
         if (!usuario) return;
-        io.to(usuario.roomActual).emit("usuarioDejoDeEscribir", {
+
+        socket.to(usuario.roomActual).emit("usuarioDejoDeEscribir", {
             nombre: usuario.nombreUsuario,
             room: usuario.roomActual
         });
     });
 
-    socket.on("disconnect", function () {
+    // Desconexion
+    socket.on("disconnect", () => {
+
+        console.log(`Usuario desconectado: ${socket.id}`);
+
         const usuario = usuarios[socket.id];
+
         if (!usuario) return;
+
+        // Avisar salida
         io.to(usuario.roomActual).emit("notificacionSistema", {
             texto: `${usuario.nombreUsuario} ha salido`,
             room: usuario.roomActual
         });
+
+        // Eliminar usuario
         delete usuarios[socket.id];
-        io.emit('listaUsuarios', Object.values(usuarios));
+
+        // Actualizar lista
+        io.to(usuario.roomActual).emit(
+            'listaUsuarios',
+            usuariosEnSala(usuario.roomActual)
+        );
     });
 });
 
-// --- PUERTO ---
+// Puerto Render
 const PORT = process.env.PORT || 3000;
+
 server.listen(PORT, () => {
-    console.log(`Servidor escuchando en el puerto ${PORT}`);
+    console.log(`Servidor funcionando en puerto ${PORT}`);
 });
