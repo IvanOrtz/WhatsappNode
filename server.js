@@ -5,13 +5,9 @@ import cors from 'cors';
 
 const app = express();
 
-// URL del frontend en produccion
-const FRONTEND_URL =
-    process.env.FRONTEND_URL || "http://localhost:5173";
-
 // Configuracion CORS
 app.use(cors({
-    origin: FRONTEND_URL
+    origin: "https://whatsappnode-vxf0.onrender.com"
 }));
 
 // Endpoint basico para comprobar que el servidor funciona
