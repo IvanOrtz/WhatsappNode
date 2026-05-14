@@ -2,20 +2,17 @@ import express from 'express';
 import { Server } from "socket.io";
 import { createServer } from "node:http";
 import cors from 'cors';
-import path from 'path'; // Necesario para gestionar rutas de archivos
-import { fileURLToPath } from 'url'; // Necesario para obtener la ruta en módulos ES (import)
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-// --- CONFIGURACIÓN DE RUTAS PARA ARCHIVOS ESTÁTICOS ---
-// En Node con "import", __dirname no existe por defecto. Estas dos líneas lo activan:
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 app.use(cors());
 
-// --- SERVIR EL FRONTEND DE VUE ---
-// 'dist' es la carpeta que genera Vue al hacer "npm run build". 
-// Esto permite que al entrar a la URL se cargue tu aplicación visual.
+// --- SERVIR FRONTEND ---
+// Según tus logs, Vite está generando la carpeta 'dist', así que usamos 'dist'
 app.use(express.static(path.join(__dirname, 'dist')));
 
 const server = createServer(app);
@@ -26,20 +23,18 @@ const io = new Server(server, {
 let usuarios = {};
 
 // --- RUTAS DE EXPRESS ---
-// Definimos la ruta raíz para que Render no devuelva "Cannot GET /"
-// Si hay un archivo index.html en /dist, express.static lo servirá automáticamente,
-// pero esto asegura que cualquier ruta desconocida cargue tu app de Vue (Single Page App).
-app.get('*', (req, res) => {
+// CORRECCIÓN DEL ERROR: En versiones nuevas de Express/path-to-regexp 
+// se debe usar '(.*)' en lugar de '*' para capturar todas las rutas.
+app.get('(.*)', (req, res) => {
     const indexPath = path.join(__dirname, 'dist', 'index.html');
-    // Verificamos si existe el build para no dar error si aún no has compilado Vue
     res.sendFile(indexPath, (err) => {
         if (err) {
-            res.status(200).send("Servidor Node activo. (Nota: No se encontró la carpeta 'dist' del frontend)");
+            res.status(200).send("Servidor Node activo. Si ves esto, es que el build de Vite no dejó los archivos en /dist.");
         }
     });
 });
 
-
+// --- LÓGICA DE SOCKET.IO ---
 function avisarEntrada(socket, sala) {
     const usuario = usuarios[socket.id];
     if (!usuario) return;
@@ -121,11 +116,8 @@ io.on('connection', function (socket) {
     });
 });
 
-// --- PUERTO DINÁMICO PARA RENDER---
-// Render asigna un puerto mediante la variable de entorno process.env.PORT.
-// Si dejas el 3000 fijo, Render no podrá conectar externamente con tu app.
+// --- PUERTO ---
 const PORT = process.env.PORT || 3000;
-
-server.listen(PORT, function () {
-    console.log(`Servidor funcionando en el puerto ${PORT}`);
+server.listen(PORT, () => {
+    console.log(`Servidor escuchando en el puerto ${PORT}`);
 });
