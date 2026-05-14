@@ -20,7 +20,7 @@ const server = createServer(app);
 // Configuracion Socket.IO
 const io = new Server(server, {
     cors: {
-        origin: FRONTEND_URL
+        origin: "https://whatsappnode-vxf0.onrender.com"
     }
 });
 
