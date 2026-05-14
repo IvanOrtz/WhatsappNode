@@ -5,12 +5,16 @@ import cors from 'cors';
 
 const app = express();
 
+// Variable de entorno para el frontend
+const FRONTEND_URL =
+    process.env.FRONTEND_URL || "http://localhost:5173";
+
 // Configuracion CORS
 app.use(cors({
-    origin: "https://whatsappnode-vxf0.onrender.com"
+    origin: FRONTEND_URL
 }));
 
-// Endpoint basico para comprobar que el servidor funciona
+// Endpoint basico
 app.get("/", (req, res) => {
     res.send("Servidor funcionando");
 });
@@ -20,21 +24,22 @@ const server = createServer(app);
 // Configuracion Socket.IO
 const io = new Server(server, {
     cors: {
-        origin: "https://whatsappnode-vxf0.onrender.com"
+        origin: FRONTEND_URL
     }
 });
 
 let usuarios = {};
 
-// Devuelve los usuarios de una sala
+// Obtener usuarios de una sala
 function usuariosEnSala(sala) {
     return Object.values(usuarios).filter(
         usuario => usuario.roomActual === sala
     );
 }
 
-// Envia aviso de entrada
+// Aviso de entrada
 function avisarEntrada(socket, sala) {
+
     const usuario = usuarios[socket.id];
 
     if (!usuario) return;
@@ -45,8 +50,9 @@ function avisarEntrada(socket, sala) {
     });
 }
 
-// Envia aviso de salida
+// Aviso de salida
 function avisarSalida(socket, sala) {
+
     const usuario = usuarios[socket.id];
 
     if (!usuario) return;
@@ -57,29 +63,32 @@ function avisarSalida(socket, sala) {
     });
 }
 
-// Cambia al usuario de sala
+// Cambio de sala
 function cambiarSala(socket, nuevaSala) {
+
     const usuario = usuarios[socket.id];
 
     if (!usuario || usuario.roomActual === nuevaSala) return;
 
+    const salaAnterior = usuario.roomActual;
+
     // Avisar salida
-    avisarSalida(socket, usuario.roomActual);
+    avisarSalida(socket, salaAnterior);
 
-    // Salir de la sala actual
-    socket.leave(usuario.roomActual);
+    // Salir de la sala anterior
+    socket.leave(salaAnterior);
 
-    // Entrar en la nueva sala
+    // Entrar en nueva sala
     usuario.roomActual = nuevaSala;
     socket.join(nuevaSala);
 
     // Avisar entrada
     avisarEntrada(socket, nuevaSala);
 
-    // Actualizar lista de usuarios en ambas salas
-    io.to(usuario.roomActual).emit(
+    // Actualizar usuarios en ambas salas
+    io.to(salaAnterior).emit(
         'listaUsuarios',
-        usuariosEnSala(usuario.roomActual)
+        usuariosEnSala(salaAnterior)
     );
 
     io.to(nuevaSala).emit(
@@ -92,7 +101,7 @@ io.on('connection', (socket) => {
 
     console.log(`Usuario conectado: ${socket.id}`);
 
-    // Usuario entra al chat
+    // Registrar usuario
     socket.on("nombreUsuario", (datosUsuario) => {
 
         usuarios[socket.id] = {
@@ -102,7 +111,7 @@ io.on('connection', (socket) => {
 
         socket.join('general');
 
-        // Actualizar lista de usuarios de la sala
+        // Actualizar usuarios de la sala general
         io.to('general').emit(
             'listaUsuarios',
             usuariosEnSala('general')
@@ -111,27 +120,14 @@ io.on('connection', (socket) => {
         avisarEntrada(socket, 'general');
     });
 
-    // Cambiar de sala
+    // Cambiar sala
     socket.on("cambiarSala", (nuevaSala) => {
 
         const usuario = usuarios[socket.id];
 
         if (!usuario) return;
 
-        const salaAnterior = usuario.roomActual;
-
         cambiarSala(socket, nuevaSala);
-
-        // Actualizar usuarios de ambas salas
-        io.to(salaAnterior).emit(
-            'listaUsuarios',
-            usuariosEnSala(salaAnterior)
-        );
-
-        io.to(nuevaSala).emit(
-            'listaUsuarios',
-            usuariosEnSala(nuevaSala)
-        );
     });
 
     // Mensajes
@@ -192,7 +188,7 @@ io.on('connection', (socket) => {
         // Eliminar usuario
         delete usuarios[socket.id];
 
-        // Actualizar lista
+        // Actualizar usuarios de la sala
         io.to(usuario.roomActual).emit(
             'listaUsuarios',
             usuariosEnSala(usuario.roomActual)
