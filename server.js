@@ -22,14 +22,12 @@ const io = new Server(server, {
 
 let usuarios = {};
 
-// --- RUTAS DE EXPRESS ---
-// CORRECCIÓN DEL ERROR: En versiones nuevas de Express/path-to-regexp 
-// se debe usar '(.*)' en lugar de '*' para capturar todas las rutas.
-app.get('(.*)', (req, res) => {
+
+app.get('/:any*', (req, res) => {
     const indexPath = path.join(__dirname, 'dist', 'index.html');
     res.sendFile(indexPath, (err) => {
         if (err) {
-            res.status(200).send("Servidor Node activo. Si ves esto, es que el build de Vite no dejó los archivos en /dist.");
+            res.status(200).send("Servidor activo. No se encontró la carpeta 'dist'.");
         }
     });
 });
